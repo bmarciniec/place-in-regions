@@ -1,5 +1,5 @@
-""" Test script for analysing how to retrieve data from BaseElementAdapter
-to create a BendingShape object"""
+""" Module with the implementation of an Allplan extension PlaceInRegions for
+placing bending shapes along a line in regions with variable spacings"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -75,11 +75,8 @@ def create_script_object(build_ele  : BuildingElement,
 
 
 class PlaceInRegions(BaseScriptObject):
-    """Implementation of an interactor, where the user has define format properties (like layer)
-    in the property palette and subsequently has to select an element. The properties are then
-    assigned to this element.
-
-    Terminating the interactor happens by pressing ESC.
+    """Implementation of an PythonPart for placing a selected rebar bending shape
+    along a line in regions with variable spacing
     """
 
     def __init__(self,

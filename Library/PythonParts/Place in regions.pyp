@@ -1,13 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Element>
     <Script>
-        <Name>Tests\Reinforcement\GetBendingShape.py</Name>
-        <Title>Get bending shape</Title>
-        <Version>1.0</Version>
+        <Name>PlaceInRegions.py</Name>
+        <Title>Place in regions</Title>
+        <Version>0.1</Version>
         <ShowFavoriteButtons>False</ShowFavoriteButtons>
     </Script>
     <Page>
-        <Name>Page1</Name>
+        <Name>Placement</Name>
         <Text>General</Text>
         <Parameter>
             <Name>ReinfBarDiameter</Name>
