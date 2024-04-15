@@ -44,6 +44,7 @@ class PlacementInRegions():
         self.__bars_representation_line                    = bars_representation_line
         self.__placements: list[AllplanReinf.BarPlacement] = []
         self.__uvs = uvs
+
         # get bar definition from the bar representation line
         self.__bars_definition = PlacementInRegions.__get_bars_definition(bars_representation_line)
 

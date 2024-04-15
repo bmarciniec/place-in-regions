@@ -78,6 +78,8 @@ class PlaceInRegions(BaseScriptObject):
         """Definitions of possible input modes"""
         SHAPE_SELECTION = 1
         """Input mode, when the user has to select a bending shape"""
+        SHAPE_CUT = 2
+        """Input mode when the usere has to cut the selected shape in two parts (only for polygonal input)"""
         PLACEMENT_INPUT = 3
         """Input mode, when the user must define the placement line or polygon"""
         CREATION = 4
@@ -98,6 +100,7 @@ class PlaceInRegions(BaseScriptObject):
         self.build_ele                      = build_ele
         self.shape_selection_result         = SingleElementSelectResult()
         self.placement_line_input_result    = LineInteractorResult()
+        self.shape_cut_line_input_result    = LineInteractorResult()
         self.placement_polygon_input_result = PolygonInteractorResult()
         self.placement_in_regions           = None
         self.current_mode                   = 0
@@ -118,6 +121,15 @@ class PlaceInRegions(BaseScriptObject):
             self.script_object_interactor = SingleElementSelectInteractor(self.shape_selection_result,
                                                                           [AllplanEleAdapter.BarsRepresentationLine_TypeUUID])
             print("switched to shape selection")
+
+        # actions on switch into shape cut
+        elif new_mode == self.InputMode.SHAPE_CUT:
+            self.script_object_interactor = LineInteractor(self.shape_cut_line_input_result,
+                                                           is_first_input     = False,
+                                                           prompt             = "Cut the shape in half",
+                                                           allow_pick_up      = False,
+                                                           allow_input_in_uvs = False)
+            print("switched to shape cut")
 
         # actions on switch into line input
         elif new_mode == self.InputMode.PLACEMENT_INPUT:
@@ -175,12 +187,19 @@ class PlaceInRegions(BaseScriptObject):
         if self.current_mode == self.InputMode.PLACEMENT_INPUT and self.placement_line_input_result != LineInteractorResult():
             self.current_mode = self.InputMode.CREATION
 
-        elif self.current_mode == self.InputMode.SHAPE_SELECTION:
-            bar_line = self.shape_selection_result.sel_element
-            if bar_line.GetElementAdapterType().GetGuid() != AllplanEleAdapter.NULL_TypeUUID:
-                assoc_view                = self.coord_input.GetInputAssocView()
-                self.placement_in_regions = PlacementInRegions(bar_line, assoc_view)
-                self.current_mode         = self.InputMode.PLACEMENT_INPUT
+        elif self.current_mode == self.InputMode.SHAPE_SELECTION and self.shape_selection_result != SingleElementSelectResult():
+
+            bar_line                  = self.shape_selection_result.sel_element
+            assoc_view                = self.coord_input.GetInputAssocView()
+            self.placement_in_regions = PlacementInRegions(bar_line, assoc_view)
+            if self.build_ele.PlacementType.value == 1:
+                self.current_mode = self.InputMode.PLACEMENT_INPUT
+            else:
+                self.current_mode = self.InputMode.SHAPE_CUT
+
+        elif self.current_mode == self.InputMode.SHAPE_CUT and self.shape_cut_line_input_result != LineInteractorResult():
+            print("Shape cut")
+            self.current_mode = self.InputMode.PLACEMENT_INPUT
 
     def generate_preview_placements(self, line: AllplanGeo.Line3D) -> list[AllplanReinf.BarPlacement]:
         """Generate the BarPlacements for preview
@@ -208,6 +227,10 @@ class PlaceInRegions(BaseScriptObject):
         if self.current_mode == self.InputMode.SHAPE_SELECTION:
             self.script_object_interactor = None
             return self.OnCancelFunctionResult.CANCEL_INPUT
+
+        if self.current_mode == self.InputMode.SHAPE_CUT:
+            self.current_mode = self.InputMode.SHAPE_SELECTION
+            return self.OnCancelFunctionResult.CONTINUE_INPUT
 
         if self.current_mode == self.InputMode.PLACEMENT_INPUT:
             cancel_result = self.script_object_interactor.on_cancel_function()
