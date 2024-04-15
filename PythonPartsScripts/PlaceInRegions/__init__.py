@@ -40,7 +40,7 @@ def check_allplan_version(_build_ele: BuildingElement,
         True if version equal or newer than 2024
     """
 
-    return version >= 2024.0
+    return float(version) >= 2024.0
 
 
 def create_preview(build_ele : BuildingElement,
