@@ -2,6 +2,7 @@
 placing bending shapes along a line in regions with variable spacings"""
 from __future__ import annotations
 
+from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -80,6 +81,14 @@ class PlaceInRegions(BaseScriptObject):
     """Implementation of an PythonPart for placing a selected rebar bending shape
     along a line in regions with variable spacing
     """
+    class InputMode(IntEnum):
+        """Definitions of possible input modes"""
+        SHAPE_SELECTION = 1
+        """Input mode, when the user has to select a bending shape"""
+        LINE_INPUT = 2
+        """Input mode, when the user must define the placement line"""
+        CREATION = 3
+        """Input mode, when the user creates the placement and can modify parameters in the palette"""
 
     def __init__(self,
                  build_ele: BuildingElement,
@@ -97,6 +106,41 @@ class PlaceInRegions(BaseScriptObject):
         self.shape_selection_result      = ScriptObjectInteractorResult()
         self.placement_line_input_result = LineInteractorResult()
         self.placement_in_regions        = None
+        self.current_mode                = 0
+
+    @property
+    def current_mode(self) -> PlaceInRegions.InputMode:
+        """Current input mode"""
+        return self.__mode
+
+    @current_mode.setter
+    def current_mode(self, new_mode: PlaceInRegions.InputMode) -> None:
+        self.script_object_interactor = None    # always terminate the old interactor
+
+        # actions on switch into shape selection
+        if new_mode == self.InputMode.SHAPE_SELECTION:
+            self.shape_selection_result   = ScriptObjectInteractorResult()
+            self.placement_in_regions     = None
+            self.script_object_interactor = SingleElementInteractor(self.shape_selection_result,
+                                                                    [AllplanEleAdapter.BarsRepresentationLine_TypeUUID])
+            print("switched to shape selection")
+
+        # actions on switch into line input
+        elif new_mode == self.InputMode.LINE_INPUT:
+            self.placement_line_input_result = LineInteractorResult()
+            self.script_object_interactor = LineInteractor(self.placement_line_input_result,
+                                                           is_first_input     = False,
+                                                           prompt             = "Input placement line",
+                                                           allow_pick_up      = True,
+                                                           allow_input_in_uvs = True,
+                                                           preview_function   = self.generate_preview_placements)
+            print("switched to line input")
+
+        # actions on switch into creation mode
+        elif new_mode == self.InputMode.CREATION:
+            print("switched to creation")
+
+        self.__mode = new_mode
 
     def execute(self) -> CreateElementResult:
         """Execute the element creation
@@ -117,26 +161,21 @@ class PlaceInRegions(BaseScriptObject):
 
     def start_input(self):
         """Start the element selection"""
-        self.script_object_interactor = SingleElementInteractor(self.shape_selection_result,
-                                                                [AllplanEleAdapter.BarsRepresentationLine_TypeUUID])
+        self.current_mode = self.InputMode.SHAPE_SELECTION
 
     def start_next_input(self):
-        if self.placement_line_input_result != LineInteractorResult() and self.shape_selection_result != ScriptObjectInteractorResult():
-            self.script_object_interactor = None
+        if self.current_mode == self.InputMode.LINE_INPUT:
+            self.current_mode = self.InputMode.CREATION
             return
 
-        if self.shape_selection_result != ScriptObjectInteractorResult():
+        if self.current_mode == self.InputMode.SHAPE_SELECTION:
             if self.placement_in_regions is None:
                 bar_line                  = self.shape_selection_result.sel_element
-                self.placement_in_regions = PlacementInRegions(bar_line, self.coord_input.GetInputAssocView())
+                assoc_view                = self.coord_input.GetInputAssocView()
+                self.placement_in_regions = PlacementInRegions(bar_line, assoc_view)
 
             if not isinstance(self.script_object_interactor, LineInteractor):
-                self.script_object_interactor = LineInteractor(self.placement_line_input_result,
-                                                               is_first_input     = False,
-                                                               prompt             = "Input placement line",
-                                                               allow_pick_up      = True,
-                                                               allow_input_in_uvs = True,
-                                                               preview_function   = self.generate_preview_placements)
+                self.current_mode = self.InputMode.LINE_INPUT
             return
 
         self.start_input()
@@ -155,7 +194,6 @@ class PlaceInRegions(BaseScriptObject):
             return self.placement_in_regions.placements
         return []
 
-
     def on_cancel_function(self) -> BaseScriptObject.OnCancelFunctionResult:
         """ Handles the cancel function event.
 
@@ -170,15 +208,13 @@ class PlaceInRegions(BaseScriptObject):
             return BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT
 
         if isinstance(self.script_object_interactor, LineInteractor):
-            cancel_result = self.script_object_interactor.on_cancel_function()
-            if cancel_result == BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT:
-                self.script_object_interactor = None
-                self.placement_in_regions     = None
-                self.shape_selection_result   = ScriptObjectInteractorResult()
+            if (cancel_result := self.script_object_interactor.on_cancel_function()) == BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT:
+                self.current_mode = self.InputMode.SHAPE_SELECTION
+                self.script_object_interactor.start_input(self.coord_input)
                 return BaseScriptObject.OnCancelFunctionResult.CONTINUE_INPUT
             return cancel_result
 
-        AllplanBaseElements.DeleteElements(self.coord_input.GetInputViewDocument(),
+        AllplanBaseElements.DeleteElements(self.document,
                                            AllplanEleAdapter.BaseElementAdapterList([self.shape_selection_result.sel_element]))
 
         return BaseScriptObject.OnCancelFunctionResult.CREATE_ELEMENTS
