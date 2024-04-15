@@ -13,18 +13,15 @@ import NemAll_Python_IFW_Input as AllplanIFW
 import NemAll_Python_Reinforcement as AllplanReinf
 from BaseScriptObject import BaseScriptObject
 from CreateElementResult import CreateElementResult
-from ScriptObjectInteractors.ScriptObjectInteractorResult import \
-    ScriptObjectInteractorResult
-from ScriptObjectInteractors.SingleElementSelectInteractor import \
-    SingleElementInteractor
+from ScriptObjectInteractors.ScriptObjectInteractorResult import ScriptObjectInteractorResult
+from ScriptObjectInteractors.SingleElementSelectInteractor import SingleElementInteractor
 from Utils import LibraryBitmapPreview
 
 from .LineScriptObjectInteractor import LineInteractor, LineInteractorResult
 from .PlacementInRegions import PlacementInRegions
 
 if TYPE_CHECKING:
-    from __BuildingElementStubFiles.GetBendingShapeBuildingElement import \
-        GetBendingShapeBuildingElement as BuildingElement  # type: ignore
+    from __BuildingElementStubFiles.GetBendingShapeBuildingElement import GetBendingShapeBuildingElement as BuildingElement  # type: ignore
 else:
     from BuildingElement import BuildingElement
 
@@ -203,18 +200,18 @@ class PlaceInRegions(BaseScriptObject):
         Returns:
             Always cancel the input and terminate PythonPart
         """
-        if isinstance(self.script_object_interactor, SingleElementInteractor):
+        if self.current_mode == self.InputMode.SHAPE_SELECTION:
             self.script_object_interactor = None
-            return BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT
+            return self.OnCancelFunctionResult.CANCEL_INPUT
 
-        if isinstance(self.script_object_interactor, LineInteractor):
-            if (cancel_result := self.script_object_interactor.on_cancel_function()) == BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT:
+        if self.current_mode == self.InputMode.LINE_INPUT:
+            if (cancel_result := self.script_object_interactor.on_cancel_function()) == self.OnCancelFunctionResult.CANCEL_INPUT:
                 self.current_mode = self.InputMode.SHAPE_SELECTION
                 self.script_object_interactor.start_input(self.coord_input)
-                return BaseScriptObject.OnCancelFunctionResult.CONTINUE_INPUT
+                return self.OnCancelFunctionResult.CONTINUE_INPUT
             return cancel_result
 
         AllplanBaseElements.DeleteElements(self.document,
                                            AllplanEleAdapter.BaseElementAdapterList([self.shape_selection_result.sel_element]))
 
-        return BaseScriptObject.OnCancelFunctionResult.CREATE_ELEMENTS
+        return self.OnCancelFunctionResult.CREATE_ELEMENTS
