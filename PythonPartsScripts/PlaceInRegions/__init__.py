@@ -12,33 +12,35 @@ import NemAll_Python_IFW_Input as AllplanIFW
 import NemAll_Python_Reinforcement as AllplanReinf
 from BaseScriptObject import BaseScriptObject
 from CreateElementResult import CreateElementResult
-from ScriptObjectInteractors.ScriptObjectInteractorResult import ScriptObjectInteractorResult
-from ScriptObjectInteractors.SingleElementSelectInteractor import SingleElementInteractor
+from ScriptObjectInteractors.ScriptObjectInteractorResult import \
+    ScriptObjectInteractorResult
+from ScriptObjectInteractors.SingleElementSelectInteractor import \
+    SingleElementInteractor
 from Utils import LibraryBitmapPreview
 
 from .LineScriptObjectInteractor import LineInteractor, LineInteractorResult
 from .PlacementInRegions import PlacementInRegions
 
 if TYPE_CHECKING:
-    from __BuildingElementStubFiles.GetBendingShapeBuildingElement import GetBendingShapeBuildingElement as BuildingElement  # type: ignore
+    from __BuildingElementStubFiles.GetBendingShapeBuildingElement import \
+        GetBendingShapeBuildingElement as BuildingElement  # type: ignore
 else:
     from BuildingElement import BuildingElement
 
 
 def check_allplan_version(_build_ele: BuildingElement,
-                          _version  : str) -> bool:
+                          version  : str) -> bool:
     """ Check the current Allplan version
 
     Args:
         _build_ele: building element with the parameter properties
-        _version:   the current Allplan version
+        version:    the current Allplan version
 
     Returns:
-        True
+        True if version equal or newer than 2024
     """
 
-    # Support all versions
-    return True
+    return version >= 2024.0
 
 
 def create_preview(build_ele : BuildingElement,
