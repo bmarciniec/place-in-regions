@@ -168,8 +168,6 @@ class PlaceInRegions(BaseScriptObject):
         if self.build_ele.PlacementType.value == 2:
             print("Input polygon:")
             print(self.placement_polygon_input_result.input_polygon)
-            if self.placement_polygon_input_result.uvs != AllplanEleAdapter.AssocViewElementAdapter():
-                print("Input was done in UVS")
 
         elif isinstance(self.placement_in_regions, PlacementInRegions) and \
             self.placement_line_input_result != LineInteractorResult():
@@ -243,7 +241,7 @@ class PlaceInRegions(BaseScriptObject):
             # in case of polygonal input...
             if self.build_ele.PlacementType.value == 2:
 
-                if cancel_result == self.OnCancelFunctionResult.CANCEL_INPUT or self.placement_polygon_input_result.input_polygon == AllplanGeo.Polygon3D():
+                if cancel_result == self.OnCancelFunctionResult.CANCEL_INPUT or self.placement_polygon_input_result == PolygonalPlacementInteractorResult():
                     self.current_mode = self.InputMode.SHAPE_SELECTION       # switch back to shape selection if zero or invalid polygon
                 else:
                     self.current_mode = self.InputMode.CREATION              # go on to placement creation, if polygon is valid

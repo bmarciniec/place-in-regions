@@ -214,11 +214,6 @@ class PolygonalPlacementInRegions(PlacementInRegions):
         self.cut_line = cut_line
         super().__init__(bars_representation_line,uvs)
 
-        print ("Constructed PolygonalPlacement object with:")
-        print (f"Cut line: {self.cut_line}")
-        print (f"UVS matrix: {uvs.GetTransformationMatrix()}")
-
-
     @property
     def bending_shape(self) -> DistordableBendingShape:
         """Construct a BendingShape object based on the bar definition inside a BaseElementAdapter
