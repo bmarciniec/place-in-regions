@@ -14,12 +14,12 @@ import NemAll_Python_Reinforcement as AllplanReinf
 from BaseScriptObject import BaseScriptObject
 from BuildingElement import BuildingElement
 from CreateElementResult import CreateElementResult
-from ScriptObjectInteractors.PolygonInteractor import PolygonInteractor, PolygonInteractorResult
 from ScriptObjectInteractors.SingleElementSelectInteractor import SingleElementSelectInteractor, SingleElementSelectResult
 from Utils import LibraryBitmapPreview
 
 from .LineScriptObjectInteractor import LineInteractor, LineInteractorResult
-from .PlacementInRegions import PlacementInRegions
+from .PlacementInRegions import PlacementInRegions, PolygonalPlacementInRegions
+from .PolygonInteractor import PolygonInteractor, PolygonInteractorResult
 
 
 def check_allplan_version(_build_ele: BuildingElement,
@@ -104,6 +104,7 @@ class PlaceInRegions(BaseScriptObject):
         self.placement_polygon_input_result = PolygonInteractorResult()
         self.placement_in_regions           = None
         self.current_mode                   = 0
+        self.assoc_view                     = AllplanEleAdapter.AssocViewElementAdapter()
 
     @property
     def current_mode(self) -> PlaceInRegions.InputMode:
@@ -133,7 +134,8 @@ class PlaceInRegions(BaseScriptObject):
 
         # actions on switch into line input
         elif new_mode == self.InputMode.PLACEMENT_INPUT:
-            self.placement_line_input_result = LineInteractorResult()
+            self.assoc_view                     = AllplanEleAdapter.AssocViewElementAdapter()
+            self.placement_line_input_result    = LineInteractorResult()
             self.placement_polygon_input_result = PolygonInteractorResult()
 
             if self.build_ele.PlacementType.value == 1:
@@ -149,7 +151,7 @@ class PlaceInRegions(BaseScriptObject):
                 common_prop.Color = 6
                 self.script_object_interactor = PolygonInteractor(self.placement_polygon_input_result,
                                                                   self.coord_input,
-                                                                  common_prop,False,False)
+                                                                  common_prop)
             print("switched to line input")
 
         # actions on switch into creation mode
@@ -165,7 +167,10 @@ class PlaceInRegions(BaseScriptObject):
             created element
         """
         if self.build_ele.PlacementType.value == 2:
+            print("Input polygon:")
             print(self.placement_polygon_input_result.input_polygon)
+            if self.placement_polygon_input_result.uvs != AllplanEleAdapter.AssocViewElementAdapter():
+                print("Input was done in UVS")
 
         elif isinstance(self.placement_in_regions, PlacementInRegions) and \
             self.placement_line_input_result != LineInteractorResult():
@@ -188,18 +193,19 @@ class PlaceInRegions(BaseScriptObject):
             self.current_mode = self.InputMode.CREATION
 
         elif self.current_mode == self.InputMode.SHAPE_SELECTION and self.shape_selection_result != SingleElementSelectResult():
-
-            bar_line                  = self.shape_selection_result.sel_element
-            assoc_view                = self.coord_input.GetInputAssocView()
-            self.placement_in_regions = PlacementInRegions(bar_line, assoc_view)
+            self.assoc_view = self.coord_input.GetInputAssocView()
             if self.build_ele.PlacementType.value == 1:
+                bar_line                  = self.shape_selection_result.sel_element
+                self.placement_in_regions = PlacementInRegions(bar_line, self.assoc_view)
                 self.current_mode = self.InputMode.PLACEMENT_INPUT
             else:
                 self.current_mode = self.InputMode.SHAPE_CUT
 
         elif self.current_mode == self.InputMode.SHAPE_CUT and self.shape_cut_line_input_result != LineInteractorResult():
-            print("Shape cut")
-            self.current_mode = self.InputMode.PLACEMENT_INPUT
+            bar_line                  = self.shape_selection_result.sel_element
+            _, cut_line               = AllplanGeo.ConvertTo2D(self.shape_cut_line_input_result.input_line)
+            self.placement_in_regions = PolygonalPlacementInRegions(bar_line, cut_line, self.assoc_view)
+            self.current_mode         = self.InputMode.PLACEMENT_INPUT
 
     def generate_preview_placements(self, line: AllplanGeo.Line3D) -> list[AllplanReinf.BarPlacement]:
         """Generate the BarPlacements for preview

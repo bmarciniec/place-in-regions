@@ -14,6 +14,8 @@ from ScriptObjectInteractors.BaseScriptObjectInteractor import BaseScriptObjectI
 from TypeCollections.GeometryTyping import CURVES
 from TypeCollections.ModelEleList import ModelEleList
 
+from .UvsTransformation import UvsTransformation
+
 
 @dataclass
 class LineInteractorResult:
@@ -63,7 +65,7 @@ class LineInteractor(BaseScriptObjectInteractor):
         self.abscisssa_element   = abscissa_element
 
         self.start_point         = None
-        self.uvs_transform       = self.UvsTransformation(AllplanEleAdapter.AssocViewElementAdapter())
+        self.uvs_transform       = UvsTransformation(AllplanEleAdapter.AssocViewElementAdapter())
         self.coord_input         = None
 
         if default_input_value is not None:
@@ -166,7 +168,7 @@ class LineInteractor(BaseScriptObjectInteractor):
         # the UVS adapter is got only during start point input
         # for the end point, the adapter from the start point input is used
         if self.start_point is None and self.allow_uvs_input:
-            self.uvs_transform = self.UvsTransformation(self.coord_input.GetInputAssocView())
+            self.uvs_transform = UvsTransformation(self.coord_input.GetInputAssocView())
 
         # when the input line is a valid line, draw the preview or terminate interactor
         if (input_line := self.get_input_line(mouse_msg, pnt, msg_info)) != AllplanGeo.Line3D():
@@ -310,29 +312,5 @@ class LineInteractor(BaseScriptObjectInteractor):
         if self.start_point is None:
             return BaseScriptObject.OnCancelFunctionResult.CANCEL_INPUT
         self.start_point         = None
-        self.uvs_transform       = self.UvsTransformation(AllplanEleAdapter.AssocViewElementAdapter())
+        self.uvs_transform       = UvsTransformation(AllplanEleAdapter.AssocViewElementAdapter())
         return BaseScriptObject.OnCancelFunctionResult.CONTINUE_INPUT
-
-    class UvsTransformation():
-        """Class representing transformation between UVS coordinate system and world coordinate system"""
-        def __init__(self, uvs_adapter: AllplanEleAdapter.AssocViewElementAdapter):
-            """Initialize from UVS
-
-            Args:
-                uvs_adapter:    element adapter pointing to the UVS
-            """
-            self.__world_to_uvs = AllplanGeo.Matrix3D() if uvs_adapter.IsNull() else uvs_adapter.GetTransformationMatrix()
-
-        # pylint: disable=W9011
-        @property
-        def world_to_uvs(self) -> AllplanGeo.Matrix3D:
-            """Transformation from world to UVS coordinate system"""
-            return self.__world_to_uvs
-
-        @property
-        def uvs_to_world(self) -> AllplanGeo.Matrix3D:
-            """Transformation from UVS to world coordinate system"""
-            uvs_to_world = AllplanGeo.Matrix3D(self.__world_to_uvs)
-            uvs_to_world.Reverse()
-            return uvs_to_world
-        # pylint: enable=W9011
