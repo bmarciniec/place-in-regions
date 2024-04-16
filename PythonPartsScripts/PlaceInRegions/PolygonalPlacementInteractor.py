@@ -1,7 +1,10 @@
 """ implementation of the interactor for the polygon input
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Any
 
 import NemAll_Python_BaseElements as AllplanBaseEle
@@ -15,38 +18,44 @@ from .UvsTransformation import UvsTransformation
 
 
 @dataclass
-class PolygonInteractorResult:
+class PolygonalPlacementInteractorResult:
     """ implementation of the interactor result
     """
 
     input_polygon : AllplanGeo.Polygon3D = AllplanGeo.Polygon3D()
-    uvs:            AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter()
 
 
-class PolygonInteractor(BaseScriptObjectInteractor):
+class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
     """ implementation of the interactor for the polygon input
     """
-
+    class PolygonAnalysisResult(IntEnum):
+        """Result of the input polygon analysis"""
+        INVALID_FOR_PREVIEW = 0
+        """Polygon is not valid, even to be previewed"""
+        INVALID_FOR_POLYGONAL_PLACEMENT = 1
+        """Polygon is valid to be previewed, but not to be used as polygonal placement"""
+        VALID = 2
+        """Polygon is valid to be used as polygonal placement"""
 
     def __init__(self,
-                 interactor_result  : PolygonInteractorResult,
+                 interactor_result  : PolygonalPlacementInteractorResult,
                  coord_input        : AllplanIFW.CoordinateInput,
-                 common_prop        : AllplanBaseEle.CommonProperties):
+                 norm_vector        : AllplanGeo.Vector3D):
         """ Create the interactor
 
         Args:
             interactor_result:   result of the interactor
             coord_input:         API object for the coordinate input, element selection, ... in the Allplan view
             common_prop:         common properties of the polygon
-            z_coord_input:       z coordinate input
-            multi_polygon_input: multi polygon input
+            norm_vector:         normal vector of the bending shape, that should be placed
         """
 
         self.interactor_result   = interactor_result
         self.coord_input         = coord_input
-        self.common_prop         = common_prop
         self.polygon_input       = None
-        self.uvs                 = AllplanEleAdapter.AssocViewElementAdapter()
+        self.uvs_trans           = UvsTransformation()
+        self.shape_nv            = norm_vector
+        """Normal vector of the bending shape to be placed"""
 
 
     def start_input(self,
@@ -75,12 +84,10 @@ class PolygonInteractor(BaseScriptObjectInteractor):
         result_polygon *= xy_projection
 
         # trasform the polygon from UVS to global coordinate system
-        uvs_transformation = UvsTransformation(self.uvs)
-        result_polygon *= uvs_transformation.uvs_to_world
+        result_polygon *= self.uvs_trans.uvs_to_world
 
         # save the results
         self.interactor_result.input_polygon = result_polygon
-        self.interactor_result.uvs = self.uvs
 
         return BaseScriptObjectInteractor.OnCancelFunctionResult.CONTINUE_INPUT if self.interactor_result.input_polygon.IsValid() else \
                BaseScriptObjectInteractor.OnCancelFunctionResult.CANCEL_INPUT
@@ -90,14 +97,14 @@ class PolygonInteractor(BaseScriptObjectInteractor):
         """ Handles the preview draw event
         """
 
-        self.draw_preview(self.polygon_input.GetPreviewPolygon())
+        self.draw_preview()
 
 
     def on_mouse_leave(self):
         """ Handles the mouse leave event
         """
 
-        self.draw_preview(self.polygon_input.GetPolygon())
+        self.draw_preview()
 
 
     def process_mouse_msg(self,
@@ -117,31 +124,81 @@ class PolygonInteractor(BaseScriptObjectInteractor):
 
         self.polygon_input.ExecuteInput(mouse_msg, pnt, msg_info)
 
-        self.draw_preview(self.polygon_input.GetPreviewPolygon())
+        self.draw_preview()
 
         if self.coord_input.IsMouseMove(mouse_msg):
             return True
 
         if self.coord_input.SelectElement(mouse_msg,pnt,msg_info,False,True,True):
-
             if (new_uvs := self.coord_input.GetSelectedElementAssocView()) != AllplanEleAdapter.AssocViewElementAdapter():
-                self.uvs = new_uvs
+                self.uvs_trans = UvsTransformation(new_uvs)
+
         return True
 
 
-    def draw_preview(self,
-                     polygon: AllplanGeo.Polygon3D):
+    def draw_preview(self):
         """ draw the preview
 
         Args:
             polygon: polygon
         """
-        is_valid, polygon_2d = AllplanGeo.ConvertTo2D(polygon)
+        analysis_result = self.analyse_input_polygon()
 
-        if not is_valid:
+        if analysis_result == self.PolygonAnalysisResult.INVALID_FOR_PREVIEW:
             return
 
-        polygon_ele = AllplanBasisEle.ModelElement2D(self.common_prop, polygon_2d)
+        preview_common_props = AllplanBaseEle.CommonProperties()
+        if analysis_result == self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT:
+            preview_common_props.Color = 6
+        else:
+            preview_common_props.Color = 4
+
+        _, polygon = AllplanGeo.ConvertTo2D(self.polygon_input.GetPreviewPolygon())
+        polygon_ele = AllplanBasisEle.ModelElement2D(preview_common_props, polygon)
 
         AllplanBaseEle.DrawElementPreview(self.polygon_input.GetInputViewDocument(),
                                           AllplanGeo.Matrix3D(), [polygon_ele], True, None)
+
+    def analyse_input_polygon(self) -> PolygonalPlacementInteractor.PolygonAnalysisResult:
+        """Analyses the input polygon"""
+
+        polygon = self.polygon_input.GetPreviewPolygon()
+
+        # flatten the polygone
+        xy_projection = AllplanGeo.Matrix3D(1,0,0,0,
+                                            0,1,0,0,
+                                            0,0,0,0,
+                                            0,0,0,1)
+        polygon *= xy_projection
+
+        if not polygon.IsValid():
+            return self.PolygonAnalysisResult.INVALID_FOR_PREVIEW
+
+        # check, whether shape and placement polygon
+        local_shape_nv = self.shape_nv * self.uvs_trans.world_to_uvs
+        local_shape_nv *= xy_projection
+
+        if local_shape_nv.IsZero():
+            print("Placement polygon and shape are coplanar!!!!")
+            return self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT
+
+        local_shape_nv.Normalize()
+        uvs_to_shape = AllplanGeo.Matrix3D()
+        uvs_to_shape.SetRotation(local_shape_nv,AllplanGeo.Vector3D(1,0,0))
+
+        polygon *= uvs_to_shape
+
+        heights_list = []
+
+        for edge in polygon.GetLines():
+            edge_vec = edge.GetVector()
+
+            if not edge_vec.Project(AllplanGeo.Vector3D(1,0,0)).IsZero():
+                continue
+
+            heights_list.append((edge.StartPoint.X, AllplanGeo.CalcLength(edge)))
+
+        if len(heights_list) != 2:
+            return self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT
+
+        return self.PolygonAnalysisResult.VALID

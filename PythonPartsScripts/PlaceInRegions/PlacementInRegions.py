@@ -9,6 +9,7 @@ from NemAll_Python_Utility import VecDoubleList
 from StdReinfShapeBuilder import LinearBarPlacementBuilder as LinearBarBuilder
 
 from .DistordableBendingShape import DistordableBendingShape
+from .UvsTransformation import UvsTransformation
 
 
 class PlacementInRegions():
@@ -45,7 +46,7 @@ class PlacementInRegions():
         # set initial values
         self._bars_representation_line                    = bars_representation_line
         self._placements: list[AllplanReinf.BarPlacement] = []
-        self._uvs = uvs
+        self._uvs_trans = UvsTransformation(uvs)
 
         # get bar definition from the bar representation line
         self._bars_definition = PlacementInRegions._get_bars_definition(bars_representation_line)
@@ -79,12 +80,9 @@ class PlacementInRegions():
             A bending shape object
         """
         # get the shape polygon
-        # shape_polygon     = cast(AllplanGeo.Polyline3D, self.__bars_definition.GetGeometry())
         shape_polygon_2d = cast(AllplanGeo.Polyline2D, self._bars_representation_line.GetGeometry())
-        shape_polygon  = AllplanGeo.Polyline3D([AllplanGeo.Point3D(point) for point in shape_polygon_2d.Points])
-        view_to_world = self._uvs.GetTransformationMatrix()
-        view_to_world.Reverse()
-        shape_polygon *= view_to_world
+        shape_polygon    = AllplanGeo.Polyline3D([AllplanGeo.Point3D(point) for point in shape_polygon_2d.Points])
+        shape_polygon   *= self._uvs_trans.uvs_to_world
 
         _, shape_code, _ = AllplanReinf.ReinforcementService.GetBarShapeCode(self._bars_definition,
                                                                              AllplanReinf.ReinforcementService.eIso4066)
@@ -229,12 +227,9 @@ class PolygonalPlacementInRegions(PlacementInRegions):
             A bending shape object
         """
         # get the shape polygon
-        shape_polygon_2d = cast(AllplanGeo.Polyline2D, self._bars_representation_line.GetGeometry())
-
-        shape_polygon  = AllplanGeo.Polyline3D([AllplanGeo.Point3D(point) for point in shape_polygon_2d.Points])
-        view_to_world = self.uvs.GetTransformationMatrix()
-        view_to_world.Reverse()
-        shape_polygon *= view_to_world
+        shape_polygon_2d  = cast(AllplanGeo.Polyline2D, self._bars_representation_line.GetGeometry())
+        _ , shape_polygon = AllplanGeo.ConvertTo3D(shape_polygon_2d)
+        shape_polygon    *= self._uvs_trans.uvs_to_world
 
         # determine vertices below and above the cut line
         def below(pnt: AllplanGeo.Point2D) -> bool:

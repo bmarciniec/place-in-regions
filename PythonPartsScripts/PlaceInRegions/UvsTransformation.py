@@ -6,7 +6,7 @@ import NemAll_Python_IFW_ElementAdapter as AllplanEleAdapter
 class UvsTransformation():
     """Class representing transformation between UVS coordinate system and world coordinate system"""
 
-    def __init__(self, uvs_adapter: AllplanEleAdapter.AssocViewElementAdapter):
+    def __init__(self, uvs_adapter: AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter()):
         """Initialize from UVS
 
         Args:

@@ -19,7 +19,7 @@ from Utils import LibraryBitmapPreview
 
 from .LineScriptObjectInteractor import LineInteractor, LineInteractorResult
 from .PlacementInRegions import PlacementInRegions, PolygonalPlacementInRegions
-from .PolygonInteractor import PolygonInteractor, PolygonInteractorResult
+from .PolygonalPlacementInteractor import PolygonalPlacementInteractor, PolygonalPlacementInteractorResult
 
 
 def check_allplan_version(_build_ele: BuildingElement,
@@ -101,7 +101,7 @@ class PlaceInRegions(BaseScriptObject):
         self.shape_selection_result         = SingleElementSelectResult()
         self.placement_line_input_result    = LineInteractorResult()
         self.shape_cut_line_input_result    = LineInteractorResult()
-        self.placement_polygon_input_result = PolygonInteractorResult()
+        self.placement_polygon_input_result = PolygonalPlacementInteractorResult()
         self.placement_in_regions           = None
         self.current_mode                   = 0
         self.assoc_view                     = AllplanEleAdapter.AssocViewElementAdapter()
@@ -136,7 +136,7 @@ class PlaceInRegions(BaseScriptObject):
         elif new_mode == self.InputMode.PLACEMENT_INPUT:
             self.assoc_view                     = AllplanEleAdapter.AssocViewElementAdapter()
             self.placement_line_input_result    = LineInteractorResult()
-            self.placement_polygon_input_result = PolygonInteractorResult()
+            self.placement_polygon_input_result = PolygonalPlacementInteractorResult()
 
             if self.build_ele.PlacementType.value == 1:
                 self.script_object_interactor = LineInteractor(self.placement_line_input_result,
@@ -147,11 +147,10 @@ class PlaceInRegions(BaseScriptObject):
                                                                preview_function   = self.generate_preview_placements)
 
             else:
-                common_prop       = AllplanBaseElements.CommonProperties()
-                common_prop.Color = 6
-                self.script_object_interactor = PolygonInteractor(self.placement_polygon_input_result,
-                                                                  self.coord_input,
-                                                                  common_prop)
+                _, shape_plane = self.placement_in_regions.bending_shape.ShapePolyline.IsPlanar()
+                self.script_object_interactor = PolygonalPlacementInteractor(self.placement_polygon_input_result,
+                                                                             self.coord_input,
+                                                                             shape_plane.Vector)
             print("switched to line input")
 
         # actions on switch into creation mode
@@ -197,7 +196,7 @@ class PlaceInRegions(BaseScriptObject):
             if self.build_ele.PlacementType.value == 1:
                 bar_line                  = self.shape_selection_result.sel_element
                 self.placement_in_regions = PlacementInRegions(bar_line, self.assoc_view)
-                self.current_mode = self.InputMode.PLACEMENT_INPUT
+                self.current_mode         = self.InputMode.PLACEMENT_INPUT
             else:
                 self.current_mode = self.InputMode.SHAPE_CUT
 
