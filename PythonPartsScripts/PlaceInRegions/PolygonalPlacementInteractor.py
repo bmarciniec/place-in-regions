@@ -29,13 +29,22 @@ class PolygonalPlacementInteractorResult:
     -   First stirrup should be placed at the right, last at the left side.
     """
 
-    world_to_local_transformation : AllplanGeo.Matrix3D = AllplanGeo.Matrix3D()
+    world_to_local : AllplanGeo.Matrix3D = AllplanGeo.Matrix3D()
     """Matrix to transform the polygons to their local coordinate system
 
     The local coordinate system of the polygons begins in the lower left point of the
     first placement polygon. The X axis is the placement direction and the Y axis
     the direction of stirrups distortion
     """
+
+    @property
+    def local_to_world(self) -> AllplanGeo.Matrix3D:
+        """Matrix to transform the polygons from their local coordinate system to the world"""
+        local_to_world_mat = AllplanGeo.Matrix3D(self.world_to_local)
+        if local_to_world_mat.Reverse():
+            return local_to_world_mat
+        else:
+            raise ValueError("Unable to generate local to world transformation")
 
 
 class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
@@ -105,7 +114,7 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         # save the result if input was valid
         if input_result == self.PolygonAnalysisResult.VALID:
             self.interactor_result.elementary_polygons           = sub_polygons
-            self.interactor_result.world_to_local_transformation = world_to_local
+            self.interactor_result.world_to_local = world_to_local
             return BaseScriptObjectInteractor.OnCancelFunctionResult.CONTINUE_INPUT
 
         return BaseScriptObjectInteractor.OnCancelFunctionResult.CANCEL_INPUT
