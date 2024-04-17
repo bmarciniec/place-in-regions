@@ -46,6 +46,11 @@ class PolygonalPlacementInteractorResult:
         else:
             raise ValueError("Unable to generate local to world transformation")
 
+    @property
+    def total_length(self) -> float:
+        """Total length of all placements"""
+        return max((point * self.world_to_local).X for point in self.elementary_polygons[-1].Points)
+
 
 class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
     """ implementation of the interactor for the polygon input
@@ -290,8 +295,6 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         # otherwise, return polygons in world coordinate system and the matrix to transform them to their local system
         world_polygons = [AllplanGeo.ConvertTo3D(sub_polygon)[1] * self.uvs_trans.uvs_to_world for sub_polygon in sub_polygons]
         world_to_local = self.uvs_trans.world_to_uvs * global_to_local.AddDimension()
-
-        _ = [self.__print_segment_vectors(polygon) for polygon in world_polygons]
 
         return (self.PolygonAnalysisResult.VALID, world_polygons, world_to_local)
 

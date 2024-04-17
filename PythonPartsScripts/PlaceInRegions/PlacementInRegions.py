@@ -1,5 +1,9 @@
 """Module with the implementation of the PlacementInRegion class"""
+from __future__ import annotations
+
 import re
+from copy import copy
+from dataclasses import dataclass
 from typing import cast
 
 import NemAll_Python_Geometry as AllplanGeo
@@ -8,7 +12,8 @@ import NemAll_Python_Reinforcement as AllplanReinf
 from NemAll_Python_Utility import VecDoubleList
 from StdReinfShapeBuilder import LinearBarPlacementBuilder as LinearBarBuilder
 
-from .DistordableBendingShape import DistordableBendingShape
+from .DistordableBendingShape import BendingShapeDistortionUtil
+from .PolygonalPlacementInteractor import PolygonalPlacementInteractorResult
 from .UvsTransformation import UvsTransformation
 
 
@@ -29,11 +34,15 @@ class PlacementInRegions():
     """
     def __init__(self,
                  bars_representation_line: AllplanEleAdapter.BaseElementAdapter,
-                 uvs:                      AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter()):
+                 start_cover             : float,
+                 end_cover               : float,
+                 uvs                     : AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter(),
+                 )                       :
         """Initialize from a BaseElementAdapter of type BarsRepresentationLine_TypeUUID
 
         Args:
-            bars_representation_line:  BaseElementAdapter of type BarsRepresentationLine_TypeUUID
+            bars_representation_line:   BaseElementAdapter of type BarsRepresentationLine_TypeUUID
+            uvs:                        UVS in which the shape was selected
 
         Raises:
             ValueError: when the given BaseElementAdapter is not a BarsRepresentationLine_TypeUUID
@@ -43,6 +52,8 @@ class PlacementInRegions():
                              bars_representation_line.GetElementAdapterType().GetTypeName(),
                              " was given.")
 
+        self.start_cover = start_cover
+        self.end_cover   = end_cover
         # set initial values
         self._bars_representation_line                    = bars_representation_line
         self._placements: list[AllplanReinf.BarPlacement] = []
@@ -130,16 +141,13 @@ class PlacementInRegions():
                                 At least one region must have an undefined count of spacing ('$')
             placement_line:     Line to place the rebars along
         """
-        # move shape to start point
         moved_shape = AllplanReinf.BendingShape(self.bending_shape)
-        _, shape_plane = moved_shape.ShapePolyline.IsPlanar()
-        vec = AllplanGeo.Vector3D(placement_line.StartPoint - shape_plane.Point)
-        move_vector = shape_plane.Vector * vec.DotProduct(shape_plane.Vector)
-        moved_shape.Move(move_vector)
+        self._project_shape_on_point(moved_shape,
+                                     placement_line.StartPoint)
 
-        # get placement region sfrom the string
+        # get placement regions from the string
         placement_regions = self.placement_regions_from_string(regions_string,
-                                                                 self.bending_shape.GetDiameter())
+                                                               self.bending_shape.GetDiameter())
 
         # calculate the list of pairs (start points, end point) for each placement region
         region_start_end_points = LinearBarBuilder.calculate_length_of_regions(
@@ -169,6 +177,23 @@ class PlacementInRegions():
                 moved_shape.Move(AllplanGeo.Vector3D(region_start_end_points[idx + 1][0] - region_start_point))
             except IndexError:
                 continue
+
+    @staticmethod
+    def _project_shape_on_point(shape:    AllplanReinf.BendingShape,
+                                to_point: AllplanGeo.Point3D) -> None:
+        """Move the shape onto a plane defined by a point.
+
+        The movement is done by projecting the shape onto a plane parallel to the shape's plane,
+        but located on a specified point.
+
+        Args:
+            shape:    shape, that will be moved
+            to_point: point on the plane to move the shape onto
+        """
+        _, shape_plane = shape.ShapePolyline.IsPlanar()
+        vec = AllplanGeo.Vector3D(to_point - shape_plane.Point)
+        move_vector = shape_plane.Vector * vec.DotProduct(shape_plane.Vector)
+        shape.Move(move_vector)
 
 
     @staticmethod
@@ -206,50 +231,115 @@ class PlacementInRegions():
         return regions
 
 class PolygonalPlacementInRegions(PlacementInRegions):
+    """Class representing the polygonal rebar placement in multiple regions with different spacing each."""
+    @dataclass
+    class Region:
+        """Class containing data relevant for an individual placement region"""
+        bar_count : int
+        start_pnt : AllplanGeo.Point2D
+        height_at_start: float
+        end_pnt : AllplanGeo.Point2D
+        height_at_end: float
 
     def __init__(self,
                  bars_representation_line: AllplanEleAdapter.BaseElementAdapter,
                  cut_line                : AllplanGeo.Line2D,
-                 uvs                     : AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter()):
-        self.cut_line = cut_line
-        super().__init__(bars_representation_line,uvs)
+                 start_cover             : float,
+                 end_cover               : float,
+                 uvs                     : AllplanEleAdapter.AssocViewElementAdapter = AllplanEleAdapter.AssocViewElementAdapter(),
+                 ):
 
-    @property
-    def bending_shape(self) -> DistordableBendingShape:
-        """Construct a BendingShape object based on the bar definition inside a BaseElementAdapter
+        """Initialize from a BaseElementAdapter of type BarsRepresentationLine_TypeUUID
 
-        Returns:
-            A bending shape object
+        Args:
+            bars_representation_line:   BaseElementAdapter of type BarsRepresentationLine_TypeUUID
+            cut_line:                   Line cutting the shape in two parts
+            uvs:                        UVS in which the shape was selected
+
+        Raises:
+            ValueError: when the given BaseElementAdapter is not a BarsRepresentationLine_TypeUUID
         """
-        # get the shape polygon
+        self.cut_line = cut_line
+        super().__init__(bars_representation_line,start_cover,end_cover, uvs)
+
+        # -------- construct the distortion utility
         shape_polygon_2d  = cast(AllplanGeo.Polyline2D, self._bars_representation_line.GetGeometry())
-        _ , shape_polygon = AllplanGeo.ConvertTo3D(shape_polygon_2d)
-        shape_polygon    *= self._uvs_trans.uvs_to_world
+        def above(pnt: AllplanGeo.Point2D) -> bool:
+            return AllplanGeo.Comparison.DeterminePosition(self.cut_line, pnt, 1e-11) == AllplanGeo.eComparisionResult.eAbove
 
-        # determine vertices below and above the cut line
-        def below(pnt: AllplanGeo.Point2D) -> bool:
-            return AllplanGeo.Comparison.DeterminePosition(self.cut_line, pnt, 1e-11) == AllplanGeo.eComparisionResult.eBelow
+        above_points = set(idx for idx, pnt in enumerate(shape_polygon_2d.Points) if above(pnt))
 
-        above_points = set(idx for idx, pnt in enumerate(shape_polygon_2d.Points) if not below(pnt))
-        below_points = set(idx for idx, pnt in enumerate(shape_polygon_2d.Points) if below(pnt))
+        self.distortion_util = BendingShapeDistortionUtil(above_points)
 
-        # determine shape type
-        _, shape_code, _ = AllplanReinf.ReinforcementService.GetBarShapeCode(self._bars_definition,
-                                                                             AllplanReinf.ReinforcementService.eIso4066)
+    def place(self,
+              placement_data: PolygonalPlacementInteractorResult,
+              spacing: float) -> None:
+        """Foo"""
+        start_shape = AllplanReinf.BendingShape(self.bending_shape)
+        start_shape.Transform(placement_data.world_to_local)
+        self._project_shape_on_point(start_shape, AllplanGeo.Point3D())
 
-        shape_type = AllplanReinf.BendingShapeType.values[shape_code[0]]
+        self._placements.clear()
+        placement_regions = self._populate_regions(placement_data,spacing)
 
-        #TODO: when reading bending rollers from shape is possible, replace this with bending rollers from the shape
-        bending_roller = AllplanReinf.BendingRollerService.GetBendingRollerFactor(self.bar_data.Diameter,
-                                                                                  self.bar_data.SteelGrade,
-                                                                                  concreteGrade = -1,
-                                                                                  bStirrup      = True)
+        self.distortion_util.distortion_vector = AllplanGeo.Vector3D(0,1,0)
 
-        return DistordableBendingShape(shape_polygon,
-                                       above_points,
-                                       below_points,
-                                       VecDoubleList([bending_roller]*(shape_polygon.LineCount()-1) ),
-                                       self.bar_data.Diameter,
-                                       self.bar_data.SteelGrade,
-                                       -1,
-                                       shape_type)
+        # create one placement for each placement region
+        for idx, region in enumerate(placement_regions):
+            region_start_shape = AllplanReinf.BendingShape(start_shape)
+            region_start_shape.Move(AllplanGeo.Vector2D(region.start_pnt).To3D)
+            self.distortion_util.shape = region_start_shape
+            self.distortion_util.distortion_dimension = region.height_at_start
+
+
+            region_end_shape = AllplanReinf.BendingShape(start_shape)
+            region_end_shape.Move(AllplanGeo.Vector2D(region.end_pnt).To3D)
+            self.distortion_util.shape = region_end_shape
+            self.distortion_util.distortion_dimension = region.height_at_end
+
+            placement = AllplanReinf.BarPlacement(self.bar_data.Position + idx,
+                                                  region.bar_count,
+                                                  region_start_shape,
+                                                  region_end_shape)
+
+            placement.Transform(placement_data.local_to_world)
+            self._placements.append(placement)
+
+    def _populate_regions(self,
+                          placement_data: PolygonalPlacementInteractorResult,
+                          spacing: float) -> list[PolygonalPlacementInRegions.Region]:
+
+        # define the placement line on the local X axis
+        placement_line = AllplanGeo.Line2D(0,0,placement_data.total_length,0)
+        placement_line.TrimStart(self.start_cover)
+        placement_line.TrimEnd(self.end_cover)
+
+        # divide the line into points one per each rebar
+        placement_line_division = AllplanGeo.DivisionPoints(placement_line, float(spacing), 1e-11)
+        division_points = [point.To2D for point in placement_line_division.GetPoints()]
+
+        # fill the list with regions
+        regions = []
+        for polygon_3d in placement_data.elementary_polygons:
+            lines = []
+            _, polygon = AllplanGeo.ConvertTo2D(polygon_3d * placement_data.world_to_local)
+
+            # find intersection points between Y axis and each polygon
+            for point in division_points:
+                axis = AllplanGeo.Axis2D(point, AllplanGeo.Vector2D(0,1))
+                found, intersection_points = AllplanGeo.IntersectionCalculus(axis, polygon)
+                if found and len(intersection_points) == 2:
+                    lines.append(AllplanGeo.Line2D(intersection_points[0].To2D, intersection_points[1].To2D))
+
+            bar_count = len(lines)
+
+            if bar_count:
+                region = self.Region(
+                    bar_count      = bar_count,
+                    start_pnt      = lines[0].StartPoint,
+                    height_at_start= AllplanGeo.CalcLength(lines[0]),
+                    end_pnt        = lines[-1].StartPoint,
+                    height_at_end  = AllplanGeo.CalcLength(lines[-1]),
+                )
+                regions.append(region)
+        return regions

@@ -103,7 +103,7 @@ class PlaceInRegions(BaseScriptObject):
         self.shape_cut_line_input_result    = LineInteractorResult()
         self.placement_polygon_input_result = PolygonalPlacementInteractorResult()
         self.placement_in_regions           = None
-        self.current_mode                   = 0
+        self.current_mode                   = self.InputMode.SHAPE_CUT
         self.assoc_view                     = AllplanEleAdapter.AssocViewElementAdapter()
 
     @property
@@ -165,15 +165,23 @@ class PlaceInRegions(BaseScriptObject):
         Returns:
             created element
         """
-        if self.build_ele.PlacementType.value == 2:
-            print("Input polygons:")
-            print(self.placement_polygon_input_result.elementary_polygons)
+        if self.build_ele.PlacementType.value == 2 and \
+            isinstance(self.placement_in_regions, PolygonalPlacementInRegions) and \
+            self.placement_polygon_input_result != PolygonalPlacementInteractorResult:
+
+            self.placement_in_regions.place(placement_data = self.placement_polygon_input_result,
+                                            spacing        = 200)
+
+            placements = self.placement_in_regions.placements
+            print("executing polygonal placement")
+            return CreateElementResult(elements         = placements,
+                                       placement_point  = AllplanGeo.Point3D())
 
         elif isinstance(self.placement_in_regions, PlacementInRegions) and \
             self.placement_line_input_result != LineInteractorResult():
 
-            self.placement_in_regions.place(self.build_ele.RegionsString.value,
-                                            self.placement_line_input_result.input_line)
+            self.placement_in_regions.place(regions_string = self.build_ele.RegionsString.value,
+                                            placement_line = self.placement_line_input_result.input_line)
             placements = self.placement_in_regions.placements
 
             return CreateElementResult(elements         = placements,
@@ -193,7 +201,7 @@ class PlaceInRegions(BaseScriptObject):
             self.assoc_view = self.coord_input.GetInputAssocView()
             if self.build_ele.PlacementType.value == 1:
                 bar_line                  = self.shape_selection_result.sel_element
-                self.placement_in_regions = PlacementInRegions(bar_line, self.assoc_view)
+                self.placement_in_regions = PlacementInRegions(bar_line, 30, 30, self.assoc_view)
                 self.current_mode         = self.InputMode.PLACEMENT_INPUT
             else:
                 self.current_mode = self.InputMode.SHAPE_CUT
@@ -201,7 +209,7 @@ class PlaceInRegions(BaseScriptObject):
         elif self.current_mode == self.InputMode.SHAPE_CUT and self.shape_cut_line_input_result != LineInteractorResult():
             bar_line                  = self.shape_selection_result.sel_element
             _, cut_line               = AllplanGeo.ConvertTo2D(self.shape_cut_line_input_result.input_line)
-            self.placement_in_regions = PolygonalPlacementInRegions(bar_line, cut_line, self.assoc_view)
+            self.placement_in_regions = PolygonalPlacementInRegions(bar_line, cut_line, 30, 30, self.assoc_view)
             self.current_mode         = self.InputMode.PLACEMENT_INPUT
 
     def generate_preview_placements(self, line: AllplanGeo.Line3D) -> list[AllplanReinf.BarPlacement]:
