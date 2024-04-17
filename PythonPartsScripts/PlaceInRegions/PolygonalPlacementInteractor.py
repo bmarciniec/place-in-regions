@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any
+from typing import Any, cast
 
 import NemAll_Python_BaseElements as AllplanBaseEle
 import NemAll_Python_Geometry as AllplanGeo
@@ -20,10 +20,21 @@ from .UvsTransformation import UvsTransformation
 class PolygonalPlacementInteractorResult:
     """ Result of the placement polygon input"""
 
-    elementary_polygons : list[AllplanGeo.Polygon2D] = field(default_factory=list)
-    """Elementary quadrilaterals representing the placement zones.
+    elementary_polygons : list[AllplanGeo.Polygon3D] = field(default_factory=list)
+    """Elementary (polygons) quadrilaterals representing the placement zones.
 
-    Each quadrilateral has 4 edges, from which 2 are parallel to the placed shape
+    -   Each quadrilateral is counterclockwise
+    -   Edges order: bottom, right, top, left
+    -   Right and left sides are parallel.
+    -   First stirrup should be placed at the right, last at the left side.
+    """
+
+    world_to_local_transformation : AllplanGeo.Matrix3D = AllplanGeo.Matrix3D()
+    """Matrix to transform the polygons to their local coordinate system
+
+    The local coordinate system of the polygons begins in the lower left point of the
+    first placement polygon. The X axis is the placement direction and the Y axis
+    the direction of stirrups distortion
     """
 
 
@@ -64,9 +75,11 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         self.input_result = self.PolygonAnalysisResult.INVALID_FOR_PREVIEW
         """Result of the placement polygon input"""
 
-        self.sub_polygons: list[AllplanGeo.Polygon2D] =[]
-        """List with elementary placement polygons"""
+        self.preview_polygons: list[AllplanGeo.Polygon2D] =[]
+        """List with 2-dimensional elementary placement polygons in UVS's coordinate system, used for preview only"""
 
+        self.matrix = AllplanGeo.Matrix3D()
+        """Transformation matrix from global to local"""
 
     def start_input(self,
                     coord_input: AllplanIFW.CoordinateInput):
@@ -86,10 +99,13 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
             True/False for success.
         """
 
-        input_result, sub_polygons = self.analyse_input_polygon(for_preview=False)
+        input_result, sub_polygons, world_to_local = self.analyse_input_polygon(for_preview=False)
+        sub_polygons = cast(list[AllplanGeo.Polygon3D],sub_polygons)
 
+        # save the result if input was valid
         if input_result == self.PolygonAnalysisResult.VALID:
-            self.interactor_result.elementary_polygons = sub_polygons
+            self.interactor_result.elementary_polygons           = sub_polygons
+            self.interactor_result.world_to_local_transformation = world_to_local
             return BaseScriptObjectInteractor.OnCancelFunctionResult.CONTINUE_INPUT
 
         return BaseScriptObjectInteractor.OnCancelFunctionResult.CANCEL_INPUT
@@ -124,9 +140,10 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
             True/False for success.
         """
 
-        self.polygon_input.ExecuteInput(mouse_msg, pnt, msg_info)
+        self.polygon_input.ExecuteInput(mouse_msg, pnt, msg_info)   #type: ignore
 
-        self.input_result, self.sub_polygons = self.analyse_input_polygon(for_preview=True)
+        self.input_result, preview_polygons, _ = self.analyse_input_polygon(for_preview=True)
+        self.preview_polygons                  = cast(list[AllplanGeo.Polygon2D], preview_polygons)
 
         self.draw_preview()
 
@@ -153,12 +170,14 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
             preview_common_props.Color = 4
 
         polygon_ele = ModelEleList(preview_common_props)
-        polygon_ele.append_geometry_2d(self.sub_polygons)
+        polygon_ele.append_geometry_2d(self.preview_polygons)
 
-        AllplanBaseEle.DrawElementPreview(self.polygon_input.GetInputViewDocument(),
+        AllplanBaseEle.DrawElementPreview(self.coord_input.GetInputViewDocument(),
                                           AllplanGeo.Matrix3D(), polygon_ele, True, None)
 
-    def analyse_input_polygon(self, for_preview: bool = True) -> tuple[PolygonalPlacementInteractor.PolygonAnalysisResult, list[AllplanGeo.Polygon2D]]:
+    def analyse_input_polygon(self, for_preview: bool = True) -> tuple[PolygonalPlacementInteractor.PolygonAnalysisResult,
+                                                                       list[AllplanGeo.Polygon2D] | list[AllplanGeo.Polygon3D],
+                                                                       AllplanGeo.Matrix3D]:
         """Analyses the input polygon
 
         The input polygon must consist of at least two vertical segments at the beginning and the end.
@@ -168,9 +187,12 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
 
         Returns:
             result of the analysis
-            list of the elementary polygons
+            list of the elementary polygons;
+                When "for preview" option was True, the returned polygons are 2D and in UVS coordinate system
+                Otherwise they are 3D polygons, in world coordinate system
+            transformation matrix from world to local coordinate system of the input polygon (only when for prevew = False)
         """
-        polygon = self.polygon_input.GetPreviewPolygon() if for_preview else self.polygon_input.GetPolygon()
+        polygon = self.polygon_input.GetPreviewPolygon() if for_preview else self.polygon_input.GetPolygon()    #type: ignore
 
         # flatten the polygon
         xy_projection = AllplanGeo.Matrix3D(1,0,0,0,
@@ -180,7 +202,7 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         polygon *= xy_projection
 
         if not polygon.IsValid():
-            return (self.PolygonAnalysisResult.INVALID_FOR_PREVIEW, [AllplanGeo.Polygon2D()])
+            return (self.PolygonAnalysisResult.INVALID_FOR_PREVIEW, [AllplanGeo.Polygon2D()], AllplanGeo.Matrix3D())
 
         # convert to 2D
         _, polygon = AllplanGeo.ConvertTo2D(polygon)
@@ -190,25 +212,35 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         if polygon.NormalizeNoThrow() != AllplanGeo.eGeometryErrorCode.eOK:
             polygon.Reverse()
         if polygon.NormalizeNoThrow() != AllplanGeo.eGeometryErrorCode.eOK:
-            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon])
+            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon], AllplanGeo.Matrix3D())
 
         # check, whether shape and placement polygon are coplanar
         local_placement_vec = self.shape_nv * self.uvs_trans.world_to_uvs
         local_placement_vec *= xy_projection
 
         if local_placement_vec.IsZero():
-            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon])
+            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon], AllplanGeo.Matrix3D())
 
         local_placement_vec.Normalize()
+
 
         global_to_local = AllplanGeo.Matrix3D()
         global_to_local.SetRotation(local_placement_vec, AllplanGeo.Vector3D(1,0,0))
         global_to_local = global_to_local.ReduceZDimension()
 
+        local_polygon = AllplanGeo.Transform(polygon, global_to_local)
+
+        # determine the polygons reference point as the lower left point
+        ref_point = min(local_polygon.Points, key=lambda pnt: (pnt.X, pnt.Y))
+        translation_vector = AllplanGeo.Vector2D(ref_point)
+        translation_vector.Reverse()
+
+        # move the local vector to the reference point
+        local_polygon = AllplanGeo.Move(local_polygon,translation_vector)
+
+        global_to_local.Translate(translation_vector)
         local_to_global = AllplanGeo.Matrix2D(global_to_local)
         local_to_global.Reverse()
-
-        local_polygon = AllplanGeo.Transform(polygon, global_to_local)
 
         # check, whether the placement polygon has exactly two vertical segments
         _, local_polygon_edges = local_polygon.GetSegments()
@@ -216,27 +248,59 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         start_end.sort(key=lambda pnt: pnt.X)
 
         if len(start_end) != 2:
-            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon])
+            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon], AllplanGeo.Matrix3D())
 
-        # split the polygon into elementary parts
+        # split the polygon into elementary parts by cutting them vertically
         sub_polygons: list[AllplanGeo.Polygon2D] = []
 
         split_coords = [pnt.X for pnt in local_polygon.Points if start_end[0].X < pnt.X < start_end[1].X]
-        split_coords.sort()
+        split_coords = sorted(set(split_coords))
 
         for x_coord in split_coords:
             split_line = AllplanGeo.Polyline2D([AllplanGeo.Point2D(x_coord,-1e16), AllplanGeo.Point2D(x_coord,1e16)])
 
             _, _, local_left_polygon, local_right_polygon = AllplanGeo.Split(local_polygon, split_line, 1e-11, True)
 
+            # each splitted polygon must have 4 sides (5 vertices)
             if local_left_polygon.Count() != 5:
-                return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon])
+                return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon], AllplanGeo.Matrix3D())
 
             sub_polygons.append(AllplanGeo.Transform(local_left_polygon, local_to_global))
             local_polygon = local_right_polygon
 
+        # last polygon must also have 4 sides (5 vertices)
         if local_polygon.Count() != 5:
-            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon])
+            return (self.PolygonAnalysisResult.INVALID_FOR_POLYGONAL_PLACEMENT, [polygon], AllplanGeo.Matrix3D())
 
         sub_polygons.append(AllplanGeo.Transform(local_polygon, local_to_global))
-        return (self.PolygonAnalysisResult.VALID, sub_polygons)
+
+        # for preview, return the polygons as they are: in UVS's coordinate system
+        if for_preview:
+            return (self.PolygonAnalysisResult.VALID, sub_polygons, AllplanGeo.Matrix3D())
+
+        # otherwise, return polygons in world coordinate system and the matrix to transform them to their local system
+        world_polygons = [AllplanGeo.ConvertTo3D(sub_polygon)[1] * self.uvs_trans.uvs_to_world for sub_polygon in sub_polygons]
+        world_to_local = self.uvs_trans.world_to_uvs * global_to_local.AddDimension()
+
+        _ = [self.__print_segment_vectors(polygon) for polygon in world_polygons]
+
+        return (self.PolygonAnalysisResult.VALID, world_polygons, world_to_local)
+
+    # TODO: this is just a helper method. Remove from final code
+    @staticmethod
+    def __print_segment_vectors(polygon: AllplanGeo.Polygon2D | AllplanGeo.Polygon3D) -> None:
+        """Print the sequence of normalized vectors per each segment of given polygon
+
+        Args:
+            polygon: polygon to print
+        """
+        if isinstance(polygon, AllplanGeo.Polygon2D):
+            segment_vecs = [AllplanGeo.Vector2D(segment.StartPoint, segment.EndPoint) for segment in polygon.GetSegments()[1]]
+        else:
+            segment_vecs = [AllplanGeo.Vector3D(segment.StartPoint, segment.EndPoint) for segment in polygon.GetLines()]
+
+        print("====== segment vectors =======")
+        for segment_vec in segment_vecs:
+            segment_vec.Normalize()
+            print(segment_vec)
+        print("==============================")

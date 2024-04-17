@@ -166,8 +166,8 @@ class PlaceInRegions(BaseScriptObject):
             created element
         """
         if self.build_ele.PlacementType.value == 2:
-            print("Input polygon:")
-            print(self.placement_polygon_input_result.input_polygon)
+            print("Input polygons:")
+            print(self.placement_polygon_input_result.elementary_polygons)
 
         elif isinstance(self.placement_in_regions, PlacementInRegions) and \
             self.placement_line_input_result != LineInteractorResult():
