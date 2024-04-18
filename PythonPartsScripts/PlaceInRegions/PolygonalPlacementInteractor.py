@@ -21,7 +21,7 @@ class PolygonalPlacementInteractorResult:
     """ Result of the placement polygon input"""
 
     elementary_polygons : list[AllplanGeo.Polygon3D] = field(default_factory=list)
-    """Elementary (polygons) quadrilaterals representing the placement zones.
+    """Elementary quadrilaterals (4-side polygons) representing the placement zones, in world coordinate system
 
     -   Each quadrilateral is counterclockwise
     -   Edges order: bottom, right, top, left
@@ -32,14 +32,17 @@ class PolygonalPlacementInteractorResult:
     world_to_local : AllplanGeo.Matrix3D = AllplanGeo.Matrix3D()
     """Matrix to transform the polygons to their local coordinate system
 
-    The local coordinate system of the polygons begins in the lower left point of the
-    first placement polygon. The X axis is the placement direction and the Y axis
-    the direction of stirrups distortion
+    The local coordinate system begins in the lower left point of the first placement polygon.
+    The X axis is the placement direction and the Y axis the direction of stirrups distortion
     """
 
     @property
     def local_to_world(self) -> AllplanGeo.Matrix3D:
-        """Matrix to transform the polygons from their local coordinate system to the world"""
+        """Matrix to transform the polygons from their local coordinate system to the world system
+
+        Raises:
+            ValueError: When it was not possible to generate the transformation
+        """
         local_to_world_mat = AllplanGeo.Matrix3D(self.world_to_local)
         if local_to_world_mat.Reverse():
             return local_to_world_mat
@@ -48,7 +51,7 @@ class PolygonalPlacementInteractorResult:
 
     @property
     def total_length(self) -> float:
-        """Total length of all placements"""
+        """Total length of all placements. Measured along local X axis."""
         return max((point * self.world_to_local).X for point in self.elementary_polygons[-1].Points)
 
 
@@ -297,22 +300,3 @@ class PolygonalPlacementInteractor(BaseScriptObjectInteractor):
         world_to_local = self.uvs_trans.world_to_uvs * global_to_local.AddDimension()
 
         return (self.PolygonAnalysisResult.VALID, world_polygons, world_to_local)
-
-    # TODO: this is just a helper method. Remove from final code
-    @staticmethod
-    def __print_segment_vectors(polygon: AllplanGeo.Polygon2D | AllplanGeo.Polygon3D) -> None:
-        """Print the sequence of normalized vectors per each segment of given polygon
-
-        Args:
-            polygon: polygon to print
-        """
-        if isinstance(polygon, AllplanGeo.Polygon2D):
-            segment_vecs = [AllplanGeo.Vector2D(segment.StartPoint, segment.EndPoint) for segment in polygon.GetSegments()[1]]
-        else:
-            segment_vecs = [AllplanGeo.Vector3D(segment.StartPoint, segment.EndPoint) for segment in polygon.GetLines()]
-
-        print("====== segment vectors =======")
-        for segment_vec in segment_vecs:
-            segment_vec.Normalize()
-            print(segment_vec)
-        print("==============================")

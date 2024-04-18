@@ -79,7 +79,7 @@ class PlaceInRegions(BaseScriptObject):
         SHAPE_SELECTION = 1
         """Input mode, when the user has to select a bending shape"""
         SHAPE_CUT = 2
-        """Input mode when the usere has to cut the selected shape in two parts (only for polygonal input)"""
+        """Input mode when the user has to cut the selected shape in two parts (only for polygonal input)"""
         PLACEMENT_INPUT = 3
         """Input mode, when the user must define the placement line or polygon"""
         CREATION = 4
@@ -96,7 +96,7 @@ class PlaceInRegions(BaseScriptObject):
         """
         super().__init__(coord_input)
 
-        # set inital values
+        # set initial values
         self.build_ele                      = build_ele
         self.shape_selection_result         = SingleElementSelectResult()
         self.placement_line_input_result    = LineInteractorResult()
@@ -138,7 +138,7 @@ class PlaceInRegions(BaseScriptObject):
             self.placement_line_input_result    = LineInteractorResult()
             self.placement_polygon_input_result = PolygonalPlacementInteractorResult()
 
-            if self.build_ele.PlacementType.value == 1:
+            if self.build_ele.PlacementType.value == 1:                                                     # type: ignore
                 self.script_object_interactor = LineInteractor(self.placement_line_input_result,
                                                                is_first_input     = False,
                                                                prompt             = "Input placement line",
@@ -147,7 +147,8 @@ class PlaceInRegions(BaseScriptObject):
                                                                preview_function   = self.generate_preview_placements)
 
             else:
-                _, shape_plane = self.placement_in_regions.bending_shape.ShapePolyline.IsPlanar()
+                shape_polyline = self.placement_in_regions.bending_shape.GetShapePolyline()
+                _, shape_plane = shape_polyline.IsPlanar()
                 self.script_object_interactor = PolygonalPlacementInteractor(self.placement_polygon_input_result,
                                                                              self.coord_input,
                                                                              shape_plane.Vector)
@@ -165,22 +166,24 @@ class PlaceInRegions(BaseScriptObject):
         Returns:
             created element
         """
-        if self.build_ele.PlacementType.value == 2 and \
-            isinstance(self.placement_in_regions, PolygonalPlacementInRegions) and \
+        is_polygonal_placement = self.build_ele.PlacementType.value == 2     # type: ignore
+
+        if is_polygonal_placement and isinstance(self.placement_in_regions, PolygonalPlacementInRegions) and \
             self.placement_polygon_input_result != PolygonalPlacementInteractorResult:
 
-            self.placement_in_regions.place(placement_data = self.placement_polygon_input_result,
-                                            spacing        = 200)
+            self.placement_in_regions.place_by_polygon(placement_data = self.placement_polygon_input_result,
+                                                       spacing        = 200)
 
             placements = self.placement_in_regions.placements
             print("executing polygonal placement")
+
             return CreateElementResult(elements         = placements,
                                        placement_point  = AllplanGeo.Point3D())
 
-        elif isinstance(self.placement_in_regions, PlacementInRegions) and \
+        if isinstance(self.placement_in_regions, PlacementInRegions) and \
             self.placement_line_input_result != LineInteractorResult():
 
-            self.placement_in_regions.place(regions_string = self.build_ele.RegionsString.value,
+            self.placement_in_regions.place_in_line(regions_string = self.build_ele.RegionsString.value,    # type: ignore
                                             placement_line = self.placement_line_input_result.input_line)
             placements = self.placement_in_regions.placements
 
@@ -199,7 +202,7 @@ class PlaceInRegions(BaseScriptObject):
 
         elif self.current_mode == self.InputMode.SHAPE_SELECTION and self.shape_selection_result != SingleElementSelectResult():
             self.assoc_view = self.coord_input.GetInputAssocView()
-            if self.build_ele.PlacementType.value == 1:
+            if self.build_ele.PlacementType.value == 1:                                                 # type: ignore
                 bar_line                  = self.shape_selection_result.sel_element
                 self.placement_in_regions = PlacementInRegions(bar_line, 30, 30, self.assoc_view)
                 self.current_mode         = self.InputMode.PLACEMENT_INPUT
@@ -222,7 +225,7 @@ class PlaceInRegions(BaseScriptObject):
             list of placements for preview generation
         """
         if isinstance(self.placement_in_regions, PlacementInRegions):
-            self.placement_in_regions.place(self.build_ele.RegionsString.value, line)
+            self.placement_in_regions.place_in_line(self.build_ele.RegionsString.value, line)    # type: ignore
             return self.placement_in_regions.placements
         return []
 
@@ -244,10 +247,10 @@ class PlaceInRegions(BaseScriptObject):
             return self.OnCancelFunctionResult.CONTINUE_INPUT
 
         if self.current_mode == self.InputMode.PLACEMENT_INPUT:
-            cancel_result = self.script_object_interactor.on_cancel_function()
+            cancel_result = self.script_object_interactor.on_cancel_function()          # type: ignore
 
             # in case of polygonal input...
-            if self.build_ele.PlacementType.value == 2:
+            if self.build_ele.PlacementType.value == 2:                                 # type: ignore
 
                 if cancel_result == self.OnCancelFunctionResult.CANCEL_INPUT or self.placement_polygon_input_result == PolygonalPlacementInteractorResult():
                     self.current_mode = self.InputMode.SHAPE_SELECTION       # switch back to shape selection if zero or invalid polygon
